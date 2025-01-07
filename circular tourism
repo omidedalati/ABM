@@ -1,0 +1,370 @@
+breed [houses house] ;; Define a turtle breed named houses
+breed [shops shop] ;; Define a turtle breed named shops
+breed [people person] ;; Define a turtle breed named people
+breed [cleaners cleaner] ;; Define a turtle breed named cleaners
+
+houses-own [income house-trash] ;; Income and amount of trash collected by houses
+
+shops-own [revenue] ;; Revenue of shops
+people-own [money can-enter entry-tick exit-tick wait-tick shoped wants-to-eat trash-dropped random-chance second-chance] ;; Attributes of people
+patches-own[trash-count]
+
+globals [beach-open beach-cycle total-allowed-per-day day-count avg-allowed-per-day road-color sand-color sea-color total-beach-income ]
+
+to setup
+  clear-all
+  random-seed 2
+
+  ;; Set color values
+  set road-color gray
+  set sand-color rgb 210 180 140
+  set sea-color  rgb 173 216 230
+
+  ;; Set up the environment
+  setup-patches
+  setup-houses
+  setup-shopsss
+  setup-cleaners
+  create-initial-people
+
+  ;; Initialize global variables
+  set beach-open true
+  set beach-cycle 0
+  set total-allowed-per-day 0
+  set day-count 0
+  set avg-allowed-per-day 0
+  set total-beach-income 0
+
+  reset-ticks
+end
+
+to setup-cleaners
+ create-cleaners number_cleaner [
+    set shape "person"
+    set color yellow ;; Cleaner color is yellow
+    set size 4
+    setxy random-xcor 0
+  ]
+end
+
+to setup-patches
+  ask patches [
+    set trash-count  0
+    ifelse pycor > max-pycor / 2 [
+      set pcolor sea-color ;; Light blue for sea
+    ] [
+      ifelse pycor <= min-pycor + 5 [
+        set pcolor road-color  ;; Road color
+      ] [
+        set pcolor sand-color  ;; Sand for the beach
+      ]
+    ]
+  ]
+end
+
+to setup-houses
+    create-houses 1 [
+    set shape "house"
+    set color red
+    setxy 0 min-pycor + 5
+    set size 8
+    set income 0
+  ]
+end
+
+to setup-shopsss
+    create-shops 1 [
+    set shape "house"
+    set color blue
+    setxy 0 0
+    set size 8
+    set revenue 0
+  ]
+end
+
+to create-initial-people
+  create-people 15 [
+    setup-person
+    setxy random-xcor min-pycor
+  ]
+end
+
+to setup-person
+  set shape "person"
+  set color green
+  set size 4
+  set money random 101
+  set can-enter false
+  set entry-tick -1
+  set exit-tick random 1001
+  set wait-tick 0
+  set shoped false
+  set wants-to-eat false
+  set trash-dropped false
+  set random-chance random-float 1
+  set second-chance random-float 1
+  ;;set label money
+end
+
+to go
+ if day-count > 30 [
+    stop]
+  manage-beach-status
+  generate-new-people
+  manage-people-behavior
+  manage-cleaners
+  update-stats
+  tick
+end
+
+to manage-beach-status
+  ifelse ticks mod 24000 < 16000 [
+    set beach-open true
+  ] [
+    set beach-open false
+    set total-allowed-per-day 0
+    close-beach
+  ]
+end
+
+to close-beach
+  ask people with [can-enter = true] [
+    move-to-exit
+  ]
+end
+
+to generate-new-people
+  if beach-open and ticks mod 50 = 0 [
+  let rand random 4 + 1
+    create-people rand [
+      setup-person
+      setxy random-xcor min-pycor
+    ]
+  ]
+end
+
+to manage-people-behavior
+  ask people [
+
+    ifelse can-enter [
+      handle-entry
+    ] [
+      ifelse money >= 5 [
+      handle-waiting
+  ] [
+        die
+      ]
+    ]
+  ]
+end
+
+to handle-entry
+  if entry-tick = -1 [
+    set entry-tick ticks
+  ]
+  if random-chance > 0.2 [
+    set wants-to-eat true
+    if shoped = false  and second-chance > 0.5 and money > 0 [
+      go-to-shop
+    ]
+  ]
+   ;; Random movement on the beach
+  ifelse pcolor = sand-color or pcolor = red  [
+    forward 1
+    right random 360
+    left random 360
+  ] [
+    ;; If not on the beach, move to the nearest beach patch
+    let nearest-sand min-one-of patches with [pcolor = sand-color or pcolor = red] [distance myself]
+    if nearest-sand != nobody [
+      face nearest-sand
+      forward 1
+    ]
+  ]
+
+  if ticks >= exit-tick + entry-tick [
+    move-to-exit
+  ]
+end
+
+to handle-waiting
+  let nearest-house min-one-of houses [distance myself]
+  if nearest-house != nobody [
+    face nearest-house
+    forward 1
+    if distance nearest-house < 1 [
+      handle-entrance-fee
+    ]
+  ]
+end
+
+to handle-entrance-fee
+  let total-count count people with [can-enter = true]
+  let dirtiness beach-dirtiness ;; Calculate beach pollution percentage
+
+  ;; Pollution percentage condition
+  ifelse total-count <= 30 and beach-open [
+    ifelse dirtiness > 5 [
+
+          die
+        ]
+     [
+      ;; Allow normal entry if pollution is below 5%
+      set money money - 5
+      ;;set label money
+      ask houses [
+        set income income + 5
+      ]
+      set total-beach-income total-beach-income + 5
+      set can-enter true
+      set total-allowed-per-day total-allowed-per-day + 1
+  ]]
+  [
+    ;; If beach capacity is full
+    set wait-tick wait-tick + 1
+    if wait-tick >= 100 [
+      die
+    ]]
+
+end
+
+to go-to-shop
+  let nearest-shop min-one-of shops [distance myself]
+  if nearest-shop != nobody [
+    while [distance nearest-shop > 1] [
+      face nearest-shop
+      forward 1
+    ]
+    if distance nearest-shop < 1 [
+      spend-money-at-shop
+    ]
+  ]
+end
+
+to spend-money-at-shop
+  let spend min list (1 + random money) money
+  set money money - spend
+  ask shops [
+    set revenue revenue + spend
+  ]
+  set total-beach-income total-beach-income + spend ;; Update total income
+  ;;set label money
+  set shoped true
+end
+
+to move-to-exit
+  let nearest-house min-one-of houses [distance myself]
+  if nearest-house != nobody [
+    while [distance nearest-house > 1] [
+      face nearest-house
+      forward 1
+      IFelse model-type = "LE"[
+        LE-trash] [CE-trash]
+
+    ]
+    if distance nearest-house <= 1 [
+     if model-type = "CE"[
+        handle-trash-return ]
+      die
+    ]
+  ]
+end
+
+to LE-trash
+
+  let  chek  random 100
+  if chek <= 50 [
+  if not trash-dropped and wants-to-eat [
+    ask patch-here [
+      set pcolor red
+      set trash-count trash-count  + 1
+    ]
+    set trash-dropped true
+     ]
+  ]
+end
+
+to CE-trash
+
+  let  chek  random 100
+  if chek < 10 [
+  if not trash-dropped and wants-to-eat [
+    ask patch-here [
+      set pcolor red
+      set trash-count trash-count  + 1
+    ]
+    set trash-dropped true
+     ]
+  ]
+end
+
+to handle-trash-return
+  if  not trash-dropped [
+    set total-beach-income total-beach-income - 5
+    ask houses [
+      set house-trash house-trash + 1
+    ]
+    set trash-dropped true
+  ]
+end
+
+to manage-cleaners
+  if beach-open = true [
+    ask-concurrent cleaners [
+      ifelse [trash-count] of patch-here > 0[
+        ;; Clean trash
+        set pcolor ifelse-value (pycor > min-pycor + 5) [
+          ifelse-value ( pycor > max-pycor / 2 ) [sea-color] [sand-color]] [road-color]
+        set trash-count 0
+      ] [
+        ;; Random movement
+        right random 360
+        forward 1
+      ]
+    ]
+  ]
+end
+
+to pay-cleaners
+  ;; Calculate cleaner salaries
+  let cleaner-count count cleaners
+  let total-salary cleaner-count * 2000
+
+  ;; Deduct salaries from total income
+  ifelse total-beach-income >= total-salary [
+    set total-beach-income total-beach-income - total-salary
+  ] [
+    show "Warning: Not enough income to pay cleaners!"
+    set total-beach-income 0
+  ]
+end
+
+to sell-trash
+  ask houses [
+    let trash-sale house-trash * 2.5
+    set total-beach-income total-beach-income + trash-sale
+    set house-trash 0
+  ]
+end
+
+to-report beach-dirtiness
+  ;; Percentage of red patches on the beach
+  let total-sand count patches with [pcolor = sand-color or pcolor = red]
+  let red-patches count patches with [pcolor = red]
+  if total-sand = 0 [ report 0 ] ;; If no sand patches on the beach
+  report (red-patches / total-sand) * 100
+end
+
+to update-stats
+  if ticks mod 24000 = 0 [
+    set day-count day-count + 1
+    if day-count > 30 [
+      show "Simulation ended at Day 31."
+      stop
+    ]
+    show (word "Day: " day-count )
+    set total-allowed-per-day 0
+    pay-cleaners
+    sell-trash
+  ]
+end
